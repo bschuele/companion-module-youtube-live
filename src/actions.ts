@@ -6,7 +6,7 @@ import type {
 } from '@companion-module/base';
 import { type BroadcastMap, youngerThan } from './cache.js';
 import { BroadcastLifecycle } from './lifecycle.js';
-import { type BroadcastID, Visibility } from './types.js';
+import { type BroadcastID, StreamResolutions, StreamFrameRates, Visibility } from './types.js';
 import {
 	BroadcastIdIsTextOptionId,
 	BroadcastIdDropdownOptionId,
@@ -17,6 +17,7 @@ import {
 import type { Core } from './core.js';
 
 export enum ActionId {
+	CreateBroadcastStream = 'create_broadcast_stream',
 	InitBroadcast = 'init_broadcast',
 	StartBroadcast = 'start_broadcast',
 	StopBroadcast = 'stop_broadcast',
@@ -144,6 +145,62 @@ export function listActions({
 	);
 
 	return {
+		[ActionId.CreateBroadcastStream]: {
+			name: 'Create Broadcast + Stream',
+			description: 'Create and bind a new broadcast and RTMP stream. Auto-start is off unless explicitly enabled.',
+			options: [
+				{ type: 'textinput', id: 'title', label: 'Broadcast title', default: 'Neuer Livestream', useVariables: true },
+				{
+					type: 'textinput',
+					id: 'description',
+					label: 'Description',
+					default: '',
+					useVariables: true,
+					multiline: true,
+				},
+				{
+					type: 'dropdown',
+					id: 'visibility',
+					label: 'Visibility',
+					default: Visibility.Unlisted,
+					choices: Object.values(Visibility).map((id) => ({ id, label: id.charAt(0).toUpperCase() + id.slice(1) })),
+				},
+				{
+					type: 'dropdown',
+					id: 'resolution',
+					label: 'Resolution',
+					default: 'variable',
+					choices: StreamResolutions.map((id) => ({ id, label: id === 'variable' ? 'Variable' : id })),
+				},
+				{
+					type: 'dropdown',
+					id: 'frameRate',
+					label: 'Framerate',
+					default: 'variable',
+					tooltip: 'Variable requires Variable resolution, and vice versa.',
+					choices: StreamFrameRates.map((id) => ({ id, label: id === 'variable' ? 'Variable' : id })),
+				},
+				{
+					type: 'checkbox',
+					id: 'autoStart',
+					label: 'Auto-start when encoder sends video',
+					default: false,
+					tooltip:
+						'When enabled, YouTube can go live as soon as your encoder sends video with the new key. No separate Go live action is required. Auto-stop remains disabled.',
+				},
+			],
+			callback: async (event) => {
+				if (!core) noModuleCore();
+				await core.createBroadcastAndStream({
+					title: String(event.options.title ?? ''),
+					description: String(event.options.description ?? ''),
+					visibility: String(event.options.visibility),
+					resolution: String(event.options.resolution),
+					frameRate: String(event.options.frameRate),
+					autoStart: event.options.autoStart === true,
+				});
+			},
+		},
 		[ActionId.InitBroadcast]: {
 			name: 'Start broadcast test',
 			options: [...selectFromPreTestingBroadcasts],

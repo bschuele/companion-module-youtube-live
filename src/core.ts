@@ -1,13 +1,15 @@
-import type { Broadcast, StateMemory } from './cache.js';
+import type { Broadcast, CreatedBroadcast, StateMemory } from './cache.js';
 import type { Logger } from './common.js';
 import { BroadcastLifecycle } from './lifecycle.js';
-import type { BroadcastID, Visibility } from './types.js';
-import { Transition, type YoutubeAPI } from './youtube.js';
+import type { BroadcastID, CreateBroadcastOptions, CreatedResourceIds, Visibility } from './types.js';
+import { CreationError, Transition, type YoutubeAPI } from './youtube.js';
 
 /**
  * Interface between executive core and the Companion module glue
  */
 export interface ModuleBase {
+	loadCreatedIds(): CreatedResourceIds | undefined;
+	saveCreatedIds(ids: CreatedResourceIds): void;
 	/** Reload all Companion components */
 	reloadAll(memory: StateMemory): void;
 
@@ -25,6 +27,57 @@ export interface ModuleBase {
  * Executive core of the module
  */
 export class Core {
+	private Creation: Promise<void> | null = null;
+	private CacheRevision = 0;
+	private Closing = false;
+	private Reloading = false;
+
+	/** Ignore concurrent presses, including while a full reload is in progress. */
+	async createBroadcastAndStream(options: CreateBroadcastOptions): Promise<void> {
+		if (this.Closing || this.Creation || this.Reloading) {
+			this.Module.log('warn', 'Creation already running or connection closing; button press ignored.');
+			return;
+		}
+		this.Creation = this.createAndPublish(options);
+		try {
+			await this.Creation;
+		} finally {
+			this.Creation = null;
+		}
+	}
+
+	private async createAndPublish(options: CreateBroadcastOptions): Promise<void> {
+		try {
+			const result = await this.YouTube.createBroadcastAndStream(options);
+			this.Module.saveCreatedIds({ broadcastId: result.broadcast.Id, streamId: result.stream.Id });
+			this.Cache.LastCreated = result;
+			this.CacheRevision++;
+			this.includeCreated(result);
+			this.Module.reloadAll(this.Cache);
+		} catch (error) {
+			this.Module.log(
+				'error',
+				error instanceof CreationError
+					? error.message
+					: 'Creation or publication failed. Check YouTube Studio before retrying.'
+			);
+		}
+	}
+
+	private includeCreated(result: CreatedBroadcast): void {
+		this.Cache.Broadcasts[result.broadcast.Id] = result.broadcast;
+		this.Cache.Streams[result.stream.Id] = result.stream;
+		this.Cache.UnfinishedBroadcasts = Object.values(this.Cache.Broadcasts)
+			.filter((b) => b.Status !== BroadcastLifecycle.Complete && b.Status !== BroadcastLifecycle.Revoked)
+			.sort((a, b) => Date.parse(a.ScheduledStartTime) - Date.parse(b.ScheduledStartTime));
+	}
+
+	/** Finish the current transaction before replacing the authenticated connection. */
+	async close(): Promise<void> {
+		this.Closing = true;
+		this.destroy();
+		await this.Creation;
+	}
 	/** Known broadcasts & streams */
 	Cache: StateMemory;
 
@@ -92,8 +145,24 @@ export class Core {
 		});
 
 		this.Cache.UnfinishedBroadcasts = unfinished;
-		this.Module.reloadAll(this.Cache);
-		this.RefreshTimer = this.#newRefreshTimer();
+		const ids = this.Module.loadCreatedIds();
+		if (ids) {
+			try {
+				const result = await this.YouTube.restoreCreatedBroadcast(ids);
+				this.Cache.LastCreated = result;
+				this.includeCreated(result);
+			} catch (_error) {
+				this.Module.log(
+					'warn',
+					'Last created broadcast could not be restored; check authorization/resources and reload everything.'
+				);
+				if (this.Cache.LastCreated) this.includeCreated(this.Cache.LastCreated);
+			}
+		}
+		if (!this.Closing) {
+			this.Module.reloadAll(this.Cache);
+			this.RefreshTimer = this.#newRefreshTimer();
+		}
 	}
 
 	/**
@@ -112,9 +181,14 @@ export class Core {
 	 * Callback for refreshing broadcasts states etc.
 	 */
 	async refresher(): Promise<void> {
+		if (this.Creation || this.Closing || this.Reloading) return;
+		const revision = this.CacheRevision;
 		try {
-			this.Cache.Broadcasts = await this.YouTube.refreshBroadcastStatus(this.Cache.Broadcasts);
-			this.Cache.Streams = await this.YouTube.listBoundStreams(this.Cache.Broadcasts);
+			const broadcasts = await this.YouTube.refreshBroadcastStatus(this.Cache.Broadcasts);
+			const streams = await this.YouTube.listBoundStreams(broadcasts);
+			if (revision !== this.CacheRevision || this.Closing) return;
+			this.Cache.Broadcasts = broadcasts;
+			this.Cache.Streams = streams;
 			// update existing unfinished broadcasts store
 			this.Cache.UnfinishedBroadcasts = this.Cache.UnfinishedBroadcasts.map((a) => {
 				return a.Id in this.Cache.Broadcasts ? this.Cache.Broadcasts[a.Id] : a;
@@ -302,8 +376,17 @@ export class Core {
 	 * Reload the list of broadcasts and streams
 	 */
 	async reloadEverything(): Promise<void> {
-		this.destroy();
-		return this.init();
+		if (this.Closing || this.Reloading) return;
+		this.Reloading = true;
+		try {
+			await this.Creation;
+			if (this.Closing) return;
+			this.CacheRevision++;
+			this.destroy();
+			await this.init();
+		} finally {
+			this.Reloading = false;
+		}
 	}
 
 	/**

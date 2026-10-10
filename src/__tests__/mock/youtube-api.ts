@@ -4,6 +4,8 @@ import type { YoutubeAPI } from '../../youtube.js';
 
 export function makeMockYT(memory: StateMemory): YoutubeAPI {
 	return {
+		createBroadcastAndStream: vi.fn<YoutubeAPI['createBroadcastAndStream']>(),
+		restoreCreatedBroadcast: vi.fn<YoutubeAPI['restoreCreatedBroadcast']>(),
 		listBroadcasts: vi.fn<YoutubeAPI['listBroadcasts']>().mockImplementation(async () => {
 			return Promise.resolve(memory.Broadcasts);
 		}),

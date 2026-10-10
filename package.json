@@ -5,6 +5,7 @@
 	"main": "dist/index.js",
 	"license": "MIT",
 	"scripts": {
+		"package:portable": "yarn build && yarn companion-module-build --prerelease && node scripts/normalize-package.mjs",
 		"postinstall": "husky",
 		"dev": "yarn build:watch",
 		"check-types": "tsc -p tsconfig.json --noEmit",

@@ -4,6 +4,24 @@ export type BroadcastID = string;
 /** YouTube stream ID, e.g. x5N_EJVE8gv8yIG3yWbOBQ1589791517384371 */
 export type StreamID = string;
 
+export const StreamResolutions = ['variable', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p'];
+export const StreamFrameRates = ['variable', '30fps', '60fps'];
+
+export interface CreateBroadcastOptions {
+	title: string;
+	description: string;
+	visibility: string;
+	resolution: string;
+	frameRate: string;
+	autoStart?: boolean;
+}
+
+/** Only these non-secret identifiers are persisted. */
+export interface CreatedResourceIds {
+	broadcastId: string;
+	streamId: string;
+}
+
 /**
  * Health metric for AV streams going to YouTube.
  */

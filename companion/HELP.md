@@ -8,12 +8,13 @@ broadcasts that the action might be performed upon, or by specifying its ID (the
 part after the `?v=...` in a YouTube video URL) as textual input. A checkbox
 switches between the two modes.
 
-The module currently only allows already-created broadcasts to be manipulated:
-it doesn't offer a way to create them itself. You'll have to create a broadcast
-in YouTube Studio in order to be able to manipulate it.
+Use **Create Broadcast + Stream** to prepare a new broadcast with a fresh RTMP
+stream and key, or control broadcasts created in YouTube Studio.
 
 ## Available actions
 
+- **Create Broadcast + Stream** - Creates a broadcast, a new RTMP stream, and
+  binds them. Auto-start is disabled by default and can be explicitly enabled.
 - **Start broadcast test** - This action initializes the broadcast. You'll need
   to explicitly use this only if you want to launch the so-called "monitor
   stream" of a broadcast. The same goal can be achieved by visiting the Live
@@ -178,6 +179,121 @@ Alternatively, if you have the YouTube broadcast ID, you can check the checkbox
 to switch to a text input and enter it there. The text field supports
 variables, so you can also store the broadcast ID in a variable and change that
 variable as needed.
+
+## Create Broadcast + Stream
+
+Requires Companion 4.1 or later (module API 1.13) and a YouTube channel enabled
+for live streaming. Use the connection's existing OAuth setup; no additional
+Google Cloud project or client is needed. The existing `youtube.force-ssl`
+scope authorizes broadcast creation, stream creation and binding.
+
+| Option                              | Default          | Details                                                                       |
+| ----------------------------------- | ---------------- | ----------------------------------------------------------------------------- |
+| Broadcast title                     | Neuer Livestream | 1–100 characters after Companion variable expansion                           |
+| Description                         | Empty            | Up to 5000 characters; multiline and variables supported                      |
+| Visibility                          | Unlisted         | Public, Unlisted or Private                                                   |
+| Resolution                          | Variable         | Variable, 240p, 360p, 480p, 720p, 1080p, 1440p, 2160p                         |
+| Framerate                           | Variable         | Variable, 30fps or 60fps                                                      |
+| Auto-start when encoder sends video | Off              | When enabled, YouTube goes live when the encoder sends video with the new key |
+
+Resolution and framerate must **both** be Variable, or **both** be fixed.
+Angle brackets are rejected in title/description. YouTube validates any further
+restrictions. The scheduled start is five minutes after the button press;
+this is scheduling metadata, not a timer that starts the broadcast. Auto-start
+is off by default; auto-stop remains disabled. A monitor stream is enabled so the
+existing testing action works. Each invocation uses `liveStreams.insert` with
+`isReusable: false`; existing stream keys are never reused by this action.
+
+### Variables and encoder setup
+
+After all three API calls succeed, these variables update together:
+
+| Variable             | Value                   |
+| -------------------- | ----------------------- |
+| `last_broadcast_id`  | Created broadcast ID    |
+| `last_broadcast_url` | YouTube watch URL       |
+| `last_stream_id`     | Created live stream ID  |
+| `last_stream_key`    | Secret stream key       |
+| `last_rtmp_url`      | RTMP ingest server URL  |
+| `last_stream_title`  | Created broadcast title |
+
+For a connection labelled `youtube-live`, use `$(youtube-live:last_stream_key)`
+and `$(youtube-live:last_rtmp_url)` in a compatible encoder module's variable-aware
+key and server fields. For a combined destination use
+`$(youtube-live:last_rtmp_url)/$(youtube-live:last_stream_key)`. Replace the
+connection label if yours is different. Check that the encoder's action accepts
+variables and that its own logging does not expose the key. Do not display the
+key on public buttons, overlays or screenshots. This module does not configure
+an encoder automatically.
+
+The action callback remains pending until the three API calls succeed and all
+six new variable values have been sent to Companion. Normal button action lists
+execute concurrently. An internal Action Group in Sequential mode waits for the
+callback, but Companion documents a five-second execution timeout; errors and
+timeouts do not guarantee that subsequent actions stop. A failed creation keeps
+the previous successful key. Do not use completion alone as a success check.
+Use a separate button after verifying a new result, or a deliberately armed
+trigger watching the new broadcast ID/key. An unguarded variable-change trigger
+can also fire when variables are restored after a restart. Do not assume that a
+fixed delay always waits long enough for YouTube.
+
+With **Auto-start off**, use the following manual workflow:
+Start sending video from the encoder. On another button add **Start broadcast
+test**, or **Go live** when ready. Enable **Specify broadcast ID from text**
+and enter `$(youtube-live:last_broadcast_id)`. **Go live** handles the monitoring
+transition when needed. **Finish broadcast** and **Advance broadcast to next
+phase** accept the same variable. These actions still require the appropriate
+YouTube lifecycle state and an active encoder stream. An unlisted broadcast's
+watch page can exist before the broadcast goes live.
+
+With **Auto-start on**, create the broadcast, transfer its new server/key to the
+encoder, then start the encoder. YouTube can go live as soon as it receives video.
+Do not expect a private testing stage or require a separate Go live action in
+this mode. The option affects only broadcasts created by this invocation; it
+does not modify existing broadcasts. Finish broadcast is still required to end
+the broadcast because auto-stop remains off.
+
+### Persistence and failures
+
+Only the last successful broadcast ID and stream ID are saved in connection
+configuration. Stream keys remain in memory and Companion variables; this module
+does not write them into configuration or logs. On startup and **Reload
+everything from YouTube**, the module reads the saved resources through the
+existing authenticated API client and restores the variables, even if the
+broadcast is outside the recent-broadcast limit. This requires internet access,
+valid consent and both resources to still exist and be bound. Until restoration
+succeeds after a restart, the variables are empty. A temporary restore failure
+during the same session retains the previous values. Existing OAuth secret
+storage and token refresh are unchanged.
+
+Creation failures leave the previous successful variables and IDs unchanged.
+Concurrent presses on the same connection are ignored while a creation or full
+reload is running; a later deliberate press creates another broadcast. Separate
+connections have independent locks. Connection reconfiguration waits for an
+in-flight creation before replacing its client.
+
+If stream creation or binding fails, the module attempts to delete only the new
+broadcast, then its new stream. If broadcast deletion fails, it retains the
+possibly bound stream. Cleanup failures report resource IDs for manual inspection
+in YouTube Studio, never stream keys or raw API error objects. There is no
+automatic retry of creation requests. A lost response or process crash can leave
+resources whose IDs were never received: check Studio before retrying and remove
+unused resources manually. Cleanup can also fail when quota or authorization is
+exhausted. Successful broadcasts/streams are never automatically cleaned up.
+
+Quota/rate limits, channel live-streaming restrictions, invalid/revoked OAuth
+consent and service outages can prevent creation. Access-token refresh uses the
+existing OAuth client; revoked consent may require authorizing that same client
+again. API calls are not atomic and cannot guarantee exactly-once creation
+across network failures or restarts. Channel audience / made-for-kids settings
+are not overridden; verify them in Studio as appropriate.
+
+Official references:
+[Broadcast insert](https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/insert),
+[Stream insert](https://developers.google.com/youtube/v3/live/docs/liveStreams/insert),
+[Binding](https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/bind),
+[Stream settings](https://developers.google.com/youtube/v3/live/docs/liveStreams),
+[Companion API versions](https://companion.free/for-developers/module-development/).
 
 ## Thanks
 

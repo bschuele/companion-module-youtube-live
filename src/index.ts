@@ -31,6 +31,8 @@ import { listPresets } from './presets.js';
 import { UpgradeScripts } from './upgrades.js';
 import { YoutubeConnector } from './youtube.js';
 import { getOAuthClient } from './authorization.js';
+import { loadCreatedIds } from './config.js';
+import type { CreatedResourceIds } from './types.js';
 
 // @ts-expect-error Verify that type-testing in source files works.
 type assert_FailingTypeTest = ExpectFalse<true>;
@@ -39,6 +41,14 @@ type assert_FailingTypeTest = ExpectFalse<true>;
  * Main Companion integration class of this module
  */
 export class YoutubeInstance extends InstanceBase<RawConfig, RawSecrets> implements ModuleBase {
+	loadCreatedIds(): CreatedResourceIds | undefined {
+		return loadCreatedIds(this.#configuration.config);
+	}
+
+	saveCreatedIds(ids: CreatedResourceIds): void {
+		this.#configuration.config.last_created = { broadcastId: ids.broadcastId, streamId: ids.streamId };
+		this.saveConfig(this.#configuration.config, this.#configuration.secrets);
+	}
 	/** Executive core of the module */
 	#core: Core | null = null;
 
@@ -167,8 +177,8 @@ export class YoutubeInstance extends InstanceBase<RawConfig, RawSecrets> impleme
 		this.saveConfig(this.#configuration.config, this.#configuration.secrets);
 	}
 
-	#shutdown() {
-		this.#core?.destroy();
+	async #shutdown(): Promise<void> {
+		await this.#core?.close();
 		this.#core = null;
 	}
 
@@ -176,7 +186,7 @@ export class YoutubeInstance extends InstanceBase<RawConfig, RawSecrets> impleme
 	 * Deinitialize this module (i.e. cancel all pending asynchronous operations)
 	 */
 	override async destroy(): Promise<void> {
-		this.#shutdown();
+		await this.#shutdown();
 	}
 
 	/**
@@ -186,7 +196,9 @@ export class YoutubeInstance extends InstanceBase<RawConfig, RawSecrets> impleme
 	 */
 	override async configUpdated(config: RawConfig, secrets: RawSecrets): Promise<void> {
 		this.log('debug', 'Restarting YT module after reconfiguration');
-		this.#shutdown();
+		await this.#shutdown();
+		// A creation may have completed since the configuration form was opened.
+		config.last_created = this.#configuration.config.last_created;
 
 		this.#initInstance({ config, secrets });
 	}

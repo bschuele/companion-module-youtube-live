@@ -14,12 +14,24 @@ export interface VariableContent {
 	value: string;
 }
 
+const LastCreatedVariables = [
+	['last_broadcast_id', 'Last created broadcast ID'],
+	['last_broadcast_url', 'Last created broadcast watch URL'],
+	['last_stream_id', 'Last created stream ID'],
+	['last_stream_key', 'Last created stream key (secret)'],
+	['last_rtmp_url', 'Last created stream RTMP ingestion URL'],
+	['last_stream_title', 'Last created broadcast title'],
+] as const;
+
 /**
  * Generate variable declarations for this module
  * @param memory Known broadcasts and streams
  */
 export function declareVars(memory: StateMemory, unfinishedCnt: number): CompanionVariableDefinition[] {
-	const result: CompanionVariableDefinition[] = [];
+	const result: CompanionVariableDefinition[] = LastCreatedVariables.map(([variableId, name]) => ({
+		variableId,
+		name,
+	}));
 
 	Object.values(memory.Broadcasts).forEach((item) => {
 		result.push(
@@ -64,7 +76,18 @@ export function declareVars(memory: StateMemory, unfinishedCnt: number): Compani
  * @param memory Known broadcasts and streams
  */
 export function exportVars(memory: StateMemory, unfinishedCnt: number): VariableContent[] {
-	const result: VariableContent[] = [];
+	const created = memory.LastCreated;
+	const values = created
+		? [
+				created.broadcast.Id,
+				`https://www.youtube.com/watch?v=${created.broadcast.Id}`,
+				created.stream.Id,
+				created.streamKey,
+				created.rtmpUrl,
+				created.broadcast.Name,
+			]
+		: ['', '', '', '', '', ''];
+	const result: VariableContent[] = LastCreatedVariables.map(([name], i) => ({ name, value: values[i] }));
 
 	Object.values(memory.Broadcasts).forEach((broadcast) => {
 		result.push(...getBroadcastVars(broadcast));

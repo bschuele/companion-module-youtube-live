@@ -56,10 +56,19 @@ export type BroadcastMap = Record<BroadcastID, Broadcast>;
 /** Map of all fetched streams */
 export type StreamMap = Record<StreamID, Stream>;
 
+/** In-memory only: never serialize the stream key into configuration or logs. */
+export interface CreatedBroadcast {
+	broadcast: Broadcast;
+	stream: Stream;
+	streamKey: string;
+	rtmpUrl: string;
+}
+
 /**
  * Module-wide YouTube object cache.
  */
 export interface StateMemory {
+	LastCreated?: CreatedBroadcast;
 	/** All fetched broadcasts. */
 	Broadcasts: Record<BroadcastID, Broadcast>;
 

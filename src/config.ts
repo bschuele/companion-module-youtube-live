@@ -2,6 +2,20 @@ import type { SomeCompanionConfigField } from '@companion-module/base';
 import { credentialsFromToken } from './authorization.js';
 import type { YoutubeInstance } from './index.js';
 import type { KeysOfType } from './keys-of-type.js';
+import type { CreatedResourceIds } from './types.js';
+
+export function loadCreatedIds(config: RawConfig): CreatedResourceIds | undefined {
+	const value = config.last_created as Partial<CreatedResourceIds> | null | undefined;
+	if (
+		typeof value?.broadcastId === 'string' &&
+		/^[\w-]+$/.test(value.broadcastId) &&
+		typeof value.streamId === 'string' &&
+		/^[\w-]+$/.test(value.streamId)
+	) {
+		return { broadcastId: value.broadcastId, streamId: value.streamId };
+	}
+	return undefined;
+}
 
 function toStringDefaultEmpty(v: RawConfig[string]): string {
 	if (v === null || v === undefined) {
@@ -35,7 +49,10 @@ const UnfinishedMaxCountOptionId = 'unfinished_max_cnt';
 /**
  * Module configuration structure.
  */
+const LastCreatedOptionId = 'last_created';
+
 export type YoutubeConfig = {
+	[LastCreatedOptionId]?: CreatedResourceIds;
 	/** How many broadcasts to fetch */
 	[FetchMaxCountOptionId]: number;
 

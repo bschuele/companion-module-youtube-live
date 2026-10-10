@@ -44,10 +44,10 @@ function hasAny(vars: CompanionVariableDefinition[] | VariableContent[], name: s
 }
 
 describe('Variable declarations', () => {
-	test('No variables without broadcasts', () => {
+	test('Last-created variables exist without broadcasts', () => {
 		const data: StateMemory = { Broadcasts: {}, Streams: {}, UnfinishedBroadcasts: [] };
 		const result = declareVars(data, 0);
-		expect(result).toHaveLength(0);
+		expect(result).toHaveLength(6);
 	});
 
 	test('Lifecycle, health, visibility added for each broadcast', () => {
@@ -132,10 +132,10 @@ describe('Variable declarations', () => {
 });
 
 describe('Variable values', () => {
-	test('No variables without broadcasts', () => {
+	test('Last-created variables exist without broadcasts', () => {
 		const data: StateMemory = { Broadcasts: {}, Streams: {}, UnfinishedBroadcasts: [] };
 		const result = exportVars(data, 0);
-		expect(result).toHaveLength(0);
+		expect(result).toHaveLength(6);
 	});
 
 	test('Lifecycle, health, visibility added for each broadcast', () => {
